@@ -68,8 +68,8 @@ class REDCapSync{
 					<br>
 					<h3>Add A New Project</h3>
 					<form method="post">
-						<input name="url" placeholder="REDCap URL" value="http://localhost">
-						<input name="token" placeholder="API Token" value="C72D23718701190D030F1CF812CA68AC">
+						<input name="url" placeholder="REDCap URL">
+						<input name="token" placeholder="API Token">
 						<button>Add</button>
 					</form>
 				</div>
