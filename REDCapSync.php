@@ -8,14 +8,18 @@ if ( ! defined( 'WPINC' ) ) {
 CONST REDCAP_SYNC_CRON_HOOK = 'redcap_sync_cron_hook';
 
 class REDCapSync{
+	const REDCAP_PROJECT = 'redcap_project';
+	const REDCAP_RECORD = 'redcap_record';
+
 	function initializePlugin(){
 		add_action('init', function(){
-			register_post_type('redcap_project');
-			register_post_type('redcap_record');
+			register_post_type(self::REDCAP_PROJECT);
+			register_post_type(self::REDCAP_RECORD);
 		});
 
-		add_action(REDCAP_SYNC_CRON_HOOK, function(){
-			error_log('redcap_sync_cron_hook ran');
+		add_action(REDCAP_SYNC_CRON_HOOK, function($args){
+			// We use call_user_func_array to call the cronHook() method because I had to wrap the arguments in an extra array due to closure errors on everything but the first arg.  I'm not sure why exactly...
+			call_user_func_array(array($this, "cronHook"), $args);
 		});
 
 		add_action('admin_menu', function(){
@@ -42,13 +46,13 @@ class REDCapSync{
 					<h3>Projects</h3>
 					<table>
 					<?php
-					$query = new WP_Query(['post_type' => 'redcap_project']);
+					$query = $this->getProjectQuery();
 					if($query->have_posts()){
 						while($query->have_posts()){
 							$query->the_post();
 							?>
 							<tr>
-								<td><?=$this->get_post_meta('title')?> - PID <?=$this->get_post_meta('project_id')?> at <?=$this->get_post_meta('url')?></td>
+								<td><?=$this->get_post_meta('title')?> - PID <?=$this->get_post_meta('pid')?> at <?=$this->get_post_meta('url')?></td>
 								<td>
 									<form method="post">
 										<input type="hidden" name="id-to-remove" value="<?=get_the_ID()?>">
@@ -78,6 +82,65 @@ class REDCapSync{
 		});
 	}
 
+	private function cronHook($url, $pid, $eventId, $recordId, $scheduleTime){
+//		error_log("redcap_sync_cron_hook ran: $url, $pid, $eventId, $recordId, $scheduleTime");
+
+		$wordPressProjectId = $this->getWordPressProjectId(['url'=>$url, 'pid'=>$pid]);
+		if(!$wordPressProjectId){
+			throw new Exception("Could not find project for url $url and pid $pid.");
+		}
+
+		$token = get_post_meta($wordPressProjectId, 'token', true);
+		$recordIdFieldName = get_post_meta($wordPressProjectId, 'record_id_field_name', true);
+
+		$response = $this->request($url, $token, [
+			'content' => 'record',
+			'events' => $eventId,
+			'filterLogic' => "([$recordIdFieldName] = '$recordId')"
+		]);
+
+		$error = $this->getResponseError($response);
+		if($error){
+			error_log("Error retrieving record for $url, $pid, $eventId, $recordId, $scheduleTime: $error");
+			return;
+		}
+		else if(!is_array($response) || empty($response)){
+			error_log("Record not found for $url, $pid, $eventId, $recordId, $scheduleTime");
+			return;
+		}
+
+		$recordData = $response[0];
+		if(empty($recordData)){
+			error_log("Record data was empty for $url, $pid, $eventId, $recordId, $scheduleTime");
+			return;
+		}
+
+		$recordMetadataKeys = [
+			'pid' => $pid,
+			'event_id' => $eventId,
+			$recordIdFieldName => $recordId
+		];
+
+		$postData = [
+			'post_type' => self::REDCAP_RECORD,
+			'post_status' => 'publish',
+			'meta_input' => array_merge($recordData, $recordMetadataKeys)
+		];
+
+		$wordPressRecordId = $this->getWordPressRecordId($recordMetadataKeys);
+		if($wordPressRecordId){
+			// This is an existing record.  Add the record id to the $postData so the existing record will be updated.
+			$postData['ID'] = $wordPressRecordId;
+		}
+
+		// This method handles both inserts and updates.
+		$id = wp_insert_post($postData);
+
+		if(!$id){
+			error_log("An error occurred while adding/updating the following record: $url, $pid, $eventId, $recordId, $scheduleTime");
+		}
+	}
+
 	private function handlePost(){
 		$id = @$_POST['id-to-remove'];
 		if (!empty($id)) {
@@ -90,32 +153,61 @@ class REDCapSync{
 		}
 	}
 
-	private function getProjectId($url, $token){
-		$query = new WP_Query([
-			'post_type' => 'redcap_project',
-			'meta_query' => [
-				'relation' => 'AND',
-				[
-					'key' => 'url',
-					'value' => $url
-				],
-				[
-					'key' => 'token',
-					'value' => $token
-				]
-			]
-		]);
+	private function getWordPressProjectId($metadata){
+		$query = $this->getProjectQuery($metadata);
+		return $this->getSinglePostId($query, $metadata);
+	}
 
+	private function getWordPressRecordId($metadata){
+		$query = $this->getRecordQuery($metadata);
+		return $this->getSinglePostId($query, $metadata);
+	}
+
+	private function getSinglePostId($query, $metadata){
 		if($query->have_posts()){
 			$query->the_post();
+
+			if($query->have_posts()){
+				throw new Exception("Multiple {$query->query['post_type']} posts found matching metadata: " . json_encode($metadata));
+			}
+
 			return get_the_ID();
 		}
 
 		return null;
 	}
 
+	function getMetadataQuery($postType, $metadata = null){
+		$queryArgs = [
+			'post_type' => $postType
+		];
+
+		if($metadata){
+			$metaQuery = ['relation' => 'AND'];
+
+			foreach($metadata as $key=>$value){
+				$metaQuery[] = [
+					'key' => $key,
+					'value' => $value
+				];
+			}
+
+			$queryArgs['meta_query'] = $metaQuery;
+		}
+
+		return new WP_Query($queryArgs);
+	}
+
+	private function getProjectQuery($metadata = null){
+		return $this->getMetadataQuery(self::REDCAP_PROJECT, $metadata);
+	}
+
+	private function getRecordQuery($metadata = null){
+		return $this->getMetadataQuery(self::REDCAP_RECORD, $metadata);
+	}
+
 	private function addProject($url, $token){
-		if($this->getProjectId($url, $token)){
+		if($this->getWordPressProjectId(['url'=>$url, 'token'=>$token])){
 			echo "This project has already been added.<br>";
 			return;
 		}
@@ -124,18 +216,34 @@ class REDCapSync{
 			'content' => 'project'
 		]);
 
-		if(empty($response) || !empty($response['error'])){
-			echo "An error occurred while adding the project: " . $response['error'] . '<br>';
+		$error = $this->getResponseError($response);
+		if($error){
+			echo "An error occurred while getting project info: $error<br>";
+			return;
+		}
+
+		$pid = $response['project_id'];
+		$title = $response['project_title'];
+
+		$response = $this->request($url, $token, [
+			'content' => 'metadata'
+		]);
+
+		$error = $this->getResponseError($response);
+		if($error){
+			echo "An error occurred while getting project metadata: $error<br>";
 			return;
 		}
 
 		$id = wp_insert_post([
-			'post_type' => 'redcap_project',
+			'post_type' => self::REDCAP_PROJECT,
+			'post_status' => 'publish',
 			'meta_input' => [
-				'project_id' => $response['project_id'],
+				'pid' => $pid,
 				'url' => $url,
 				'token' => $token,
-				'title' => $response['project_title']
+				'title' => $title,
+				'record_id_field_name' => $response[0]['field_name']
 			]
 		]);
 
@@ -144,8 +252,15 @@ class REDCapSync{
 		}
 	}
 
-	public function queueRecord($url, $pid, $eventId, $recordId){
+	private function getResponseError($response){
+		if(empty($response)){
+			return "An unknown error occurred when parsing the API response.";
+		}
+		else if(!empty($response['error'])){
+			return "The API returned an error: " . $response['error'];
+		}
 
+		return null;
 	}
 
 	private function request($url, $token, $params){
@@ -177,8 +292,18 @@ class REDCapSync{
 		return json_decode($output, true);
 	}
 
-	private function get_post_meta($key, $single = true){
+	private function get_post_meta($key = null, $single = true){
 		global $post;
 		return get_post_meta($post->ID, $key, $single);
+	}
+
+	// This method is really just intended for troubleshooting.
+	private function dumpRecords(){
+		echo "<h2>Records</h2>";
+		$query = $this->getRecordQuery();
+		while($query->have_posts()){
+			$query->the_post();
+			var_dump($this->get_post_meta());
+		}
 	}
 }
