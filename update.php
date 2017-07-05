@@ -20,3 +20,5 @@ else{
 	// but it will keep us from getting a huge backlog of updates that won't run until the next time a user loads a page.
 	spawn_cron();
 }
+
+echo 'success';
