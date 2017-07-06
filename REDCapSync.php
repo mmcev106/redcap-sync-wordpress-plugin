@@ -93,16 +93,23 @@ class REDCapSync{
 		$action   = @$args['action'];
 
 		try{
+			$wordPressProjectId = $this->getWordPressProjectId(['url' => $url, 'pid' => $pid]);
+			if (!$wordPressProjectId) {
+				throw new Exception("Could not find project for url $url and pid $pid.");
+			}
+
+			$token = get_post_meta($wordPressProjectId, 'token', true);
+			$recordIdFieldName = get_post_meta($wordPressProjectId, 'record_id_field_name', true);
+
 			if($action == 'update-data-dictionary'){
 //				$this->updateDataDictionary($args);
 				throw new Exception("Action not implemented");
 			}
 			else if($action == 'update-record'){
-				$this->updateRecord($url, $pid, $eventId, $recordId);
+				$this->updateRecord($url, $pid, $token, $recordIdFieldName, $eventId, $recordId);
 			}
 			else if($action == 'delete-record'){
-//				$this->deleteRecord($url, $pid, $eventId, $recordId);
-				throw new Exception("Action not implemented");
+				$this->deleteRecord($url, $pid, $recordIdFieldName, $recordId);
 			}
 			else{
 				throw new Exception("Unknown action: $action");
@@ -114,14 +121,7 @@ class REDCapSync{
 		}
 	}
 
-	private function updateRecord($url, $pid, $eventId, $recordId){
-		$wordPressProjectId = $this->getWordPressProjectId(['url' => $url, 'pid' => $pid]);
-		if (!$wordPressProjectId) {
-			throw new Exception("Could not find project for url $url and pid $pid.");
-		}
-
-		$token = get_post_meta($wordPressProjectId, 'token', true);
-		$recordIdFieldName = get_post_meta($wordPressProjectId, 'record_id_field_name', true);
+	private function updateRecord($url, $pid, $token, $recordIdFieldName, $eventId, $recordId){
 
 		$response = $this->request($url, $token, [
 			'content' => 'record',
@@ -143,6 +143,7 @@ class REDCapSync{
 		}
 
 		$recordMetadataKeys = [
+			'url' => $url,
 			'pid' => $pid,
 			'event_id' => $eventId,
 			$recordIdFieldName => $recordId
@@ -168,10 +169,32 @@ class REDCapSync{
 		}
 	}
 
+	private function deleteRecord($url, $pid, $recordIdFieldName, $recordId){
+		if(empty($recordId)){
+			throw new Exception("You must specify the record to delete a record.");
+		}
+
+		$wordPressRecordId = $this->getWordPressRecordId([
+			'url' => $url,
+			'pid' => $pid,
+			$recordIdFieldName => $recordId
+		]);
+
+		if(empty($wordPressRecordId)){
+			throw new Exception("Can't delete record because it does not exist.");
+		}
+
+		if(wp_delete_post($wordPressRecordId) === false){
+			throw new Exception("An error occurred while deleting the record post!");
+		}
+	}
+
 	private function handlePost(){
 		$id = @$_POST['id-to-remove'];
 		if (!empty($id)) {
-			wp_delete_post($id);
+			if(wp_delete_post($id) === false){
+				throw new Exception("An error occurred while deleting the project post!");
+			}
 		} else {
 			$url = $_POST['url'];
 			$token = $_POST['token'];
