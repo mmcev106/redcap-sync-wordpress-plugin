@@ -14,7 +14,7 @@ $params['timestamp'] = $timestamp;
 $params = json_encode($params);
 
 if(wp_schedule_single_event($timestamp, REDCAP_SYNC_CRON_HOOK, [$params]) === false) {
-	error_log("The following REDCap Sync event could not be scheduled: " . $params);
+	$redcapSync->sendErrorEmail("The following REDCap Sync event could not be scheduled: " . $params);
 }
 else{
 	// This will only trigger the hook that was just scheduled immediately if cron hasn't run within the last minute,

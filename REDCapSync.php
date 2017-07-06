@@ -116,8 +116,7 @@ class REDCapSync{
 			}
 		}
 		catch(Exception $e){
-			// I tried wrapping the exception with this one, but WordPress seems to swallow the wrapped exceptions.
-			throw new Exception($e->getMessage() . "\nArguments: $jsonArgs");
+			$this->sendErrorEmail("The update request with the following arguments threw an exception:\n$jsonArgs\n\n" . $e->__toString());
 		}
 	}
 
@@ -356,6 +355,13 @@ class REDCapSync{
 			echo '<pre>';
 			var_dump($this->get_post_meta());
 			echo '</pre>';
+		}
+	}
+
+	public function sendErrorEmail($body){
+		$adminEmail = get_bloginfo('admin_email');
+		if(!wp_mail($adminEmail, "REDCap Sync Plugin Error", "$body")){
+			error_log(REDCAP_SYNC_CRON_HOOK . ': An error occurred while sending email with body: ' . $body);
 		}
 	}
 }
