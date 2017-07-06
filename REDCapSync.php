@@ -130,15 +130,15 @@ class REDCapSync{
 
 		$error = $this->getResponseError($response);
 		if($error){
-			throw new Exception("Error retrieving record (see wrapping exception for parameters)");
+			throw new Exception("Error retrieving record");
 		}
 		else if(!is_array($response) || empty($response)){
-			throw new Exception("Record not found (see wrapping exception for parameters)");
+			throw new Exception("Record not found");
 		}
 
 		$recordData = $response[0];
 		if(empty($recordData)){
-			throw new Exception("Record data was empty (see wrapping exception for parameters)");
+			throw new Exception("Record data was empty");
 		}
 
 		$recordMetadataKeys = [
@@ -164,7 +164,7 @@ class REDCapSync{
 		$id = wp_insert_post($postData);
 
 		if(!$id){
-			throw new Exception("An error occurred while adding/updating the record (see wrapping exception for parameters)");
+			throw new Exception("An error occurred while adding/updating the record");
 		}
 	}
 
