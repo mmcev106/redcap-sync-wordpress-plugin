@@ -82,15 +82,41 @@ class REDCapSync{
 		});
 	}
 
-	private function cronHook($jsonArgs){
+	private function cronHook($jsonArgs)
+	{
 		$args = json_decode($jsonArgs, true);
-		$url = $args['url'];
-		$pid = $args['project-id'];
-		$eventId = $args['event-id'];
-		$recordId = $args['record-id'];
 
-		$wordPressProjectId = $this->getWordPressProjectId(['url'=>$url, 'pid'=>$pid]);
-		if(!$wordPressProjectId){
+		$url      = @$args['url'];
+		$pid      = @$args['project-id'];
+		$eventId  = @$args['event-id'];
+		$recordId = @$args['record-id'];
+		$action   = @$args['action'];
+
+		try{
+			if($action == 'update-data-dictionary'){
+//				$this->updateDataDictionary($args);
+				throw new Exception("Action not implemented");
+			}
+			else if($action == 'update-record'){
+				$this->updateRecord($url, $pid, $eventId, $recordId);
+			}
+			else if($action == 'delete-record'){
+//				$this->deleteRecord($url, $pid, $eventId, $recordId);
+				throw new Exception("Action not implemented");
+			}
+			else{
+				throw new Exception("Unknown action: $action");
+			}
+		}
+		catch(Exception $e){
+			// I tried wrapping the exception with this one, but WordPress seems to swallow the wrapped exceptions.
+			throw new Exception($e->getMessage() . "\nArguments: $jsonArgs");
+		}
+	}
+
+	private function updateRecord($url, $pid, $eventId, $recordId){
+		$wordPressProjectId = $this->getWordPressProjectId(['url' => $url, 'pid' => $pid]);
+		if (!$wordPressProjectId) {
 			throw new Exception("Could not find project for url $url and pid $pid.");
 		}
 
@@ -105,18 +131,15 @@ class REDCapSync{
 
 		$error = $this->getResponseError($response);
 		if($error){
-			error_log("Error retrieving record for $jsonArgs: $error");
-			return;
+			throw new Exception("Error retrieving record (see wrapping exception for parameters)");
 		}
 		else if(!is_array($response) || empty($response)){
-			error_log("Record not found for $jsonArgs");
-			return;
+			throw new Exception("Record not found (see wrapping exception for parameters)");
 		}
 
 		$recordData = $response[0];
 		if(empty($recordData)){
-			error_log("Record data was empty for $jsonArgs");
-			return;
+			throw new Exception("Record data was empty (see wrapping exception for parameters)");
 		}
 
 		$recordMetadataKeys = [
@@ -141,7 +164,7 @@ class REDCapSync{
 		$id = wp_insert_post($postData);
 
 		if(!$id){
-			error_log("An error occurred while adding/updating the following record: $jsonArgs");
+			throw new Exception("An error occurred while adding/updating the record (see wrapping exception for parameters)");
 		}
 	}
 
