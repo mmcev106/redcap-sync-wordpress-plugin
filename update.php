@@ -4,16 +4,17 @@ require_once __DIR__ . '/../../../wp-load.php';
 require_once 'REDCapSync.php';
 $redcapSync = new REDCapSync();
 
-$url = $_POST['url'];
-$pid = $_POST['project-id'];
-$eventId = $_POST['event-id'];
-$recordId = $_POST['record-id'];
 
-$now = time();
-// error_log("redcap_sync_cron_hook scheduled: $url, $pid, $eventId, $recordId, $now");
-// The $now variable is only added to the argument list to force the hook to run even if this record was updated in the last 10 minutes (see wp_schedule_single_event() docs).
-if(wp_schedule_single_event($now, REDCAP_SYNC_CRON_HOOK, [[$url, $pid, $eventId, $recordId, $now]]) === false) {
-	error_log("The following REDCap Sync event could not be scheduled: $url, $pid, $eventId, $recordId");
+$params = $_POST;
+$timestamp = time();
+
+// The timestamp is only added to the argument list to force the hook to run even if this record was updated in the last 10 minutes (see wp_schedule_single_event() docs).
+$params['timestamp'] = $timestamp;
+
+$params = json_encode($params);
+
+if(wp_schedule_single_event($timestamp, REDCAP_SYNC_CRON_HOOK, [$params]) === false) {
+	error_log("The following REDCap Sync event could not be scheduled: " . $params);
 }
 else{
 	// This will only trigger the hook that was just scheduled immediately if cron hasn't run within the last minute,

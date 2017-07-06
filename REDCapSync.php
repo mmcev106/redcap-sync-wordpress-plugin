@@ -19,7 +19,7 @@ class REDCapSync{
 
 		add_action(REDCAP_SYNC_CRON_HOOK, function($args){
 			// We use call_user_func_array to call the cronHook() method because I had to wrap the arguments in an extra array due to closure errors on everything but the first arg.  I'm not sure why exactly...
-			call_user_func_array(array($this, "cronHook"), $args);
+			call_user_func_array(array($this, "cronHook"), [$args]);
 		});
 
 		add_action('admin_menu', function(){
@@ -82,8 +82,12 @@ class REDCapSync{
 		});
 	}
 
-	private function cronHook($url, $pid, $eventId, $recordId, $scheduleTime){
-//		error_log("redcap_sync_cron_hook ran: $url, $pid, $eventId, $recordId, $scheduleTime");
+	private function cronHook($jsonArgs){
+		$args = json_decode($jsonArgs, true);
+		$url = $args['url'];
+		$pid = $args['project-id'];
+		$eventId = $args['event-id'];
+		$recordId = $args['record-id'];
 
 		$wordPressProjectId = $this->getWordPressProjectId(['url'=>$url, 'pid'=>$pid]);
 		if(!$wordPressProjectId){
@@ -101,17 +105,17 @@ class REDCapSync{
 
 		$error = $this->getResponseError($response);
 		if($error){
-			error_log("Error retrieving record for $url, $pid, $eventId, $recordId, $scheduleTime: $error");
+			error_log("Error retrieving record for $jsonArgs: $error");
 			return;
 		}
 		else if(!is_array($response) || empty($response)){
-			error_log("Record not found for $url, $pid, $eventId, $recordId, $scheduleTime");
+			error_log("Record not found for $jsonArgs");
 			return;
 		}
 
 		$recordData = $response[0];
 		if(empty($recordData)){
-			error_log("Record data was empty for $url, $pid, $eventId, $recordId, $scheduleTime");
+			error_log("Record data was empty for $jsonArgs");
 			return;
 		}
 
@@ -137,7 +141,7 @@ class REDCapSync{
 		$id = wp_insert_post($postData);
 
 		if(!$id){
-			error_log("An error occurred while adding/updating the following record: $url, $pid, $eventId, $recordId, $scheduleTime");
+			error_log("An error occurred while adding/updating the following record: $jsonArgs");
 		}
 	}
 
@@ -298,12 +302,14 @@ class REDCapSync{
 	}
 
 	// This method is really just intended for troubleshooting.
-	private function dumpRecords(){
+	private function dumpRecords($metadata = null){
 		echo "<h2>Records</h2>";
-		$query = $this->getRecordQuery();
+		$query = $this->getRecordQuery($metadata);
 		while($query->have_posts()){
 			$query->the_post();
+			echo '<pre>';
 			var_dump($this->get_post_meta());
+			echo '</pre>';
 		}
 	}
 }
