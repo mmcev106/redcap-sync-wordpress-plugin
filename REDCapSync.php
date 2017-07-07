@@ -88,7 +88,6 @@ class REDCapSync{
 
 		$url      = @$args['url'];
 		$pid      = @$args['project-id'];
-		$eventId  = @$args['event-id'];
 		$recordId = @$args['record-id'];
 		$action   = @$args['action'];
 
@@ -135,7 +134,6 @@ class REDCapSync{
 		$recordMetadataKeys = [
 			'url' => $url,
 			'pid' => $pid,
-			'event_id' => $eventId,
 			$recordIdFieldName => $recordId
 		];
 
