@@ -106,7 +106,7 @@ class REDCapSync{
 				throw new Exception("Action not implemented");
 			}
 			else if($action == 'update-record'){
-				$this->updateRecord($url, $pid, $token, $recordIdFieldName, $eventId, $recordId);
+				$this->updateRecord($url, $pid, $token, $recordIdFieldName, $recordId);
 			}
 			else if($action == 'delete-record'){
 				$this->deleteRecord($url, $pid, $recordIdFieldName, $recordId);
@@ -120,11 +120,10 @@ class REDCapSync{
 		}
 	}
 
-	private function updateRecord($url, $pid, $token, $recordIdFieldName, $eventId, $recordId){
+	private function updateRecord($url, $pid, $token, $recordIdFieldName, $recordId){
 
 		$response = $this->request($url, $token, [
 			'content' => 'record',
-			'events' => $eventId,
 			'filterLogic' => "([$recordIdFieldName] = '$recordId')"
 		]);
 
