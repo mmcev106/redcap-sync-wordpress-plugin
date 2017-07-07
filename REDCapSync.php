@@ -102,7 +102,6 @@ class REDCapSync{
 
 			if($action == 'update-data-dictionary'){
 //				$this->updateDataDictionary($args);
-				throw new Exception("Action not implemented");
 			}
 			else if($action == 'update-record'){
 				$this->updateRecord($url, $pid, $token, $recordIdFieldName, $recordId);
