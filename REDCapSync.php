@@ -128,14 +128,6 @@ class REDCapSync{
 			'filterLogic' => "([$recordIdFieldName] = '$recordId')"
 		]);
 
-		$error = $this->getResponseError($response);
-		if($error){
-			throw new Exception("Error retrieving record");
-		}
-		else if(!is_array($response) || empty($response)){
-			throw new Exception("Record not found");
-		}
-
 		$recordData = $response[0];
 		if(empty($recordData)){
 			throw new Exception("Record data was empty");
@@ -265,24 +257,12 @@ class REDCapSync{
 			'content' => 'project'
 		]);
 
-		$error = $this->getResponseError($response);
-		if($error){
-			echo "An error occurred while getting project info: $error<br>";
-			return;
-		}
-
 		$pid = $response['project_id'];
 		$title = $response['project_title'];
 
 		$response = $this->request($url, $token, [
 			'content' => 'metadata'
 		]);
-
-		$error = $this->getResponseError($response);
-		if($error){
-			echo "An error occurred while getting project metadata: $error<br>";
-			return;
-		}
 
 		$id = wp_insert_post([
 			'post_type' => self::REDCAP_PROJECT,
@@ -299,17 +279,6 @@ class REDCapSync{
 		if(!$id){
 			echo 'An error occurred while adding the project post.<br>';
 		}
-	}
-
-	private function getResponseError($response){
-		if(empty($response)){
-			return "An unknown error occurred when parsing the API response.";
-		}
-		else if(!empty($response['error'])){
-			return "The API returned an error: " . $response['error'];
-		}
-
-		return null;
 	}
 
 	private function request($url, $token, $params){
@@ -338,7 +307,17 @@ class REDCapSync{
 		$output = curl_exec($ch);
 		curl_close($ch);
 
-		return json_decode($output, true);
+		$response = json_decode($output, true);
+
+		// We may have requests in the future where an empty response could be expected, in which case we should move the empty() check here to each caller.
+		if(empty($response) || !is_array($response)){
+			throw new Exception("An unknown error occurred when parsing the API response: " . json_encode($response));
+		}
+		else if(!empty($response['error'])){
+			throw new Exception("The API returned an error: " . $response['error']);
+		}
+
+		return $response;
 	}
 
 	private function get_post_meta($key = null, $single = true){
