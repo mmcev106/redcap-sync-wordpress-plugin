@@ -104,7 +104,8 @@ class REDCapSync{
 //				$this->updateDataDictionary($args);
 			}
 			else if($action == 'update-record'){
-				$this->updateRecord($url, $pid, $token, $recordIdFieldName, $recordId);
+				$recordData = $this->getRecordDataFromREDCap($url, $token, $recordIdFieldName, $recordId);
+				$this->insertOrUpdateRecord($url, $pid, $recordIdFieldName, $recordData);
 			}
 			else if($action == 'delete-record'){
 				$this->deleteRecord($url, $pid, $recordIdFieldName, $recordId);
@@ -118,8 +119,8 @@ class REDCapSync{
 		}
 	}
 
-	private function updateRecord($url, $pid, $token, $recordIdFieldName, $recordId){
-
+	private function getRecordDataFromREDCap($url, $token, $recordIdFieldName, $recordId)
+	{
 		$response = $this->request($url, $token, [
 			'content' => 'record',
 			'filterLogic' => "([$recordIdFieldName] = '$recordId')"
@@ -130,10 +131,14 @@ class REDCapSync{
 			throw new Exception("Record data was empty");
 		}
 
+		return $recordData;
+	}
+
+	private function insertOrUpdateRecord($url, $pid, $recordIdFieldName, $recordData){
 		$recordMetadataKeys = [
 			'url' => $url,
 			'pid' => $pid,
-			$recordIdFieldName => $recordId
+			$recordIdFieldName => $recordData[$recordIdFieldName]
 		];
 
 		$postData = [
@@ -260,6 +265,8 @@ class REDCapSync{
 			'content' => 'metadata'
 		]);
 
+		$recordIdFieldName = $response[0]['field_name'];
+
 		$id = wp_insert_post([
 			'post_type' => self::REDCAP_PROJECT,
 			'post_status' => 'publish',
@@ -268,12 +275,20 @@ class REDCapSync{
 				'url' => $url,
 				'token' => $token,
 				'title' => $title,
-				'record_id_field_name' => $response[0]['field_name']
+				'record_id_field_name' => $recordIdFieldName
 			]
 		]);
 
 		if(!$id){
-			echo 'An error occurred while adding the project post.<br>';
+			throw new Exception('An error occurred while adding the project post.');
+		}
+
+		$records = $this->request($url, $token, [
+			'content' => 'record',
+		]);
+
+		foreach($records as $record){
+			$this->insertOrUpdateRecord($url, $pid, $recordIdFieldName, $record);
 		}
 	}
 
