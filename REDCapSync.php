@@ -56,7 +56,7 @@ class REDCapSync{
 								<td>
 									<form method="post">
 										<input type="hidden" name="id-to-remove" value="<?=get_the_ID()?>">
-										<button>Remove</button>
+										<button class="remove-project">Remove</button>
 									</form>
 								</td>
 							</tr>
@@ -71,12 +71,29 @@ class REDCapSync{
 					<br>
 					<br>
 					<h3>Add A New Project</h3>
-					<form method="post">
+					<form method="post" class="add-project">
 						<input name="url" placeholder="REDCap URL">
 						<input name="token" placeholder="API Token">
 						<button>Add</button>
 					</form>
 				</div>
+				<script>
+					jQuery(function(){
+						$ = jQuery
+
+						$('#redcap-sync-wrap form.add-project').submit(function(){
+							var button = $(this).find('button')
+							button.prop('disabled', true)
+							button.html('Adding...')
+						})
+
+						$('#redcap-sync-wrap button.remove-project').click(function(e){
+							if(!confirm('Are you sure you want to remove this project and stop receiving updates from REDCap?')){
+								e.preventDefault()
+							}
+						})
+					})
+				</script>
 				<?php
 			});
 		});
