@@ -1,10 +1,4 @@
 <?php
-
-// If this file is called directly, abort.
-if ( ! defined( 'WPINC' ) ) {
-	die;
-}
-
 CONST REDCAP_SYNC_CRON_HOOK = 'redcap_sync_cron_hook';
 
 class REDCapSync{
@@ -152,10 +146,11 @@ class REDCapSync{
 	}
 
 	private function insertOrUpdateRecord($url, $pid, $recordIdFieldName, $recordData){
+		$recordId = $recordData[$recordIdFieldName];
 		$recordMetadataKeys = [
 			'url' => $url,
 			'pid' => $pid,
-			$recordIdFieldName => $recordData[$recordIdFieldName]
+			$recordIdFieldName => $recordId
 		];
 
 		$postData = [
@@ -168,6 +163,7 @@ class REDCapSync{
 		if($wordPressRecordId){
 			// This is an existing record.  Add the record id to the $postData so the existing record will be updated.
 			$postData['ID'] = $wordPressRecordId;
+			$this->deleteCachedFiles($url, $pid, $recordId);
 		}
 
 		// This method handles both inserts and updates.
@@ -189,12 +185,44 @@ class REDCapSync{
 			$recordIdFieldName => $recordId
 		]);
 
+		$this->deleteCachedFiles($url, $pid, $recordId);
+
 		if(empty($wordPressRecordId)){
 			throw new Exception("Can't delete record because it does not exist.");
 		}
 
 		if(wp_delete_post($wordPressRecordId) === false){
 			throw new Exception("An error occurred while deleting the record post!");
+		}
+	}
+
+	private function deleteCachedFiles($url, $pid, $recordId){
+		$domain = $this->getDomain($url);
+		$this->rrmdir($this->getFileCacheDir($domain, $pid, $recordId));
+	}
+
+	public function getFileCacheDir($domain, $pid, $recordId){
+		return __DIR__ . "/../../uploads/redcap-sync-file-cache/$domain/$pid/$recordId";
+	}
+
+	public function getDomain($url){
+		$parts = explode('://', $this->get_post_meta('url'));
+		return $parts[1];
+	}
+
+	# Taken from here: https://stackoverflow.com/questions/3338123/how-do-i-recursively-delete-a-directory-and-its-entire-contents-files-sub-dir
+	private function rrmdir($dir) {
+		if (is_dir($dir)) {
+			$objects = scandir($dir);
+			foreach ($objects as $object) {
+				if ($object != "." && $object != "..") {
+					if (is_dir($dir."/".$object))
+						rrmdir($dir."/".$object);
+					else
+						unlink($dir."/".$object);
+				}
+			}
+			rmdir($dir);
 		}
 	}
 
@@ -238,7 +266,8 @@ class REDCapSync{
 
 	function getMetadataQuery($postType, $metadata = null){
 		$queryArgs = [
-			'post_type' => $postType
+			'post_type' => $postType,
+			'posts_per_page' => -1
 		];
 
 		if($metadata){
@@ -257,11 +286,11 @@ class REDCapSync{
 		return new WP_Query($queryArgs);
 	}
 
-	private function getProjectQuery($metadata = null){
+	public function getProjectQuery($metadata = null){
 		return $this->getMetadataQuery(self::REDCAP_PROJECT, $metadata);
 	}
 
-	private function getRecordQuery($metadata = null){
+	public function getRecordQuery($metadata = null){
 		return $this->getMetadataQuery(self::REDCAP_RECORD, $metadata);
 	}
 
@@ -309,7 +338,7 @@ class REDCapSync{
 		}
 	}
 
-	private function request($url, $token, $params){
+	public function request($url, $token, $params){
 		$params = array_merge([
 			'token' => $token,
 			'content' => 'record',
@@ -335,6 +364,11 @@ class REDCapSync{
 		$output = curl_exec($ch);
 		curl_close($ch);
 
+		if($params['content'] == 'file' && $params['action'] == 'export' && $output[0] != '{'){
+			// This is a non-error response to a file export request.  Return the raw binary response.
+			return $output;
+		}
+
 		$response = json_decode($output, true);
 
 		// We may have requests in the future where an empty response could be expected, in which case we should move the empty() check here to each caller.
@@ -348,7 +382,7 @@ class REDCapSync{
 		return $response;
 	}
 
-	private function get_post_meta($key = null, $single = true){
+	public function get_post_meta($key = null, $single = true){
 		global $post;
 		return get_post_meta($post->ID, $key, $single);
 	}
