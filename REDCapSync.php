@@ -153,18 +153,30 @@ class REDCapSync{
 			$recordIdFieldName => $recordId
 		];
 
+		$newPostMeta = array_merge($recordData, $recordMetadataKeys);
+
 		$postData = [
 			'post_type' => self::REDCAP_RECORD,
-			'post_status' => 'publish',
-			'meta_input' => array_merge($recordData, $recordMetadataKeys)
+			'post_status' => 'publish'
 		];
 
 		$wordPressRecordId = $this->getWordPressRecordId($recordMetadataKeys);
 		if($wordPressRecordId){
 			// This is an existing record.  Add the record id to the $postData so the existing record will be updated.
 			$postData['ID'] = $wordPressRecordId;
+
 			$this->deleteCachedFiles($url, $pid, $recordId);
+
+			$oldPostMeta = get_post_meta($wordPressRecordId);
+			foreach($oldPostMeta as $key=>$value){
+				if(!isset($newPostMeta[$key])){
+					// This field no longer exists on the record.  Remove the old value from WordPress.
+					delete_post_meta($wordPressRecordId, $key);
+				}
+			}
 		}
+
+		$postData['meta_input'] = $newPostMeta;
 
 		// This method handles both inserts and updates.
 		$id = wp_insert_post($postData);
@@ -202,6 +214,10 @@ class REDCapSync{
 	}
 
 	public function getFileCacheDir($domain, $pid, $recordId){
+		if(empty($domain) || empty($pid) || empty($recordId)){
+			throw new Exception("None of the " . __FUNCTION__ . " parameters can be null!");
+		}
+
 		return __DIR__ . "/../../uploads/redcap-sync-file-cache/$domain/$pid/$recordId";
 	}
 
