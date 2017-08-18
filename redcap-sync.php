@@ -14,6 +14,7 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-require_once 'REDCapSync.php';
+require_once __DIR__ . '/REDCapSync.php';
+
 $redcapSync = new REDCapSync();
 $redcapSync->initializePlugin();

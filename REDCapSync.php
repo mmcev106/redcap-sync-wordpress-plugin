@@ -1,4 +1,9 @@
 <?php
+require_once __DIR__ . '/vendor/autoload.php';
+
+use PHPSQLParser\PHPSQLParser;
+use PHPSQLParser\PHPSQLCreator;
+
 CONST REDCAP_SYNC_CRON_HOOK = 'redcap_sync_cron_hook';
 
 class REDCapSync{
@@ -421,4 +426,61 @@ class REDCapSync{
 			error_log(REDCAP_SYNC_CRON_HOOK . ': An error occurred while sending email with body: ' . $body);
 		}
 	}
+
+	public function queryRecords($pseudoQuery){
+		$parser = new PHPSQLParser();
+		$parsed = $parser->parse($pseudoQuery);
+
+		$fields = [];
+		$this->processPseudoQuery($parsed['SELECT'], $fields, true);
+		$this->processPseudoQuery($parsed['WHERE'], $fields);
+
+		$creator = new PHPSQLCreator();
+		$select = $creator->create(['SELECT' => $parsed['SELECT']]);
+		$where = substr($creator->create($parsed), strlen($select));
+
+		$fields = array_unique($fields);
+		$firstField = $fields[0];
+		$from = ' from (select 1) dummyTable';
+		foreach($fields as $field){
+			$from .= " left join wp_postmeta $field on $field.meta_key = '$field'";
+
+			if($field != $firstField){
+				$from .= " and $field.post_id = $firstField.post_id";
+			}
+		}
+
+		$sql = implode(' ', [$select, $from, $where]);
+
+		// All query methods build into WordPress load all result rows into memory first.
+		// We've already run into cases where we run out of memory on a project with less than 100 large records.
+		// To get around this issue, we query to database directly and return the result object to iterate over (instead of loading all rows into memory).
+		global $wpdb;
+		$dbh = $wpdb->__get('dbh');
+		return mysqli_query($dbh, $sql);
+	}
+
+	private function processPseudoQuery(&$parsed, &$fields, $addAs)
+	{
+		for ($i = 0; $i < count($parsed); $i++) {
+			$item =& $parsed[$i];
+			$subtree =& $item['sub_tree'];
+
+			if (is_array($subtree)) {
+				$this->processPseudoQuery($subtree, $fields, $addAs);
+			} else if ($item['expr_type'] == 'colref') {
+				$field = $item['base_expr'];
+				$fields[] = $field;
+
+				$newField = "$field.meta_value";
+
+				if($addAs){
+					$newField .= " as $field";
+				}
+
+				$item['base_expr'] = $newField;
+			}
+		}
+	}
+
 }
