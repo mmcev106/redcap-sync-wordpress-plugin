@@ -433,7 +433,7 @@ class REDCapSync{
 
 		$fields = [];
 		$this->processPseudoQuery($parsed['SELECT'], $fields, true);
-		$this->processPseudoQuery($parsed['WHERE'], $fields);
+		$this->processPseudoQuery($parsed['WHERE'], $fields, false);
 
 		$creator = new PHPSQLCreator();
 		$select = $creator->create(['SELECT' => $parsed['SELECT']]);
@@ -454,10 +454,16 @@ class REDCapSync{
 
 		// All query methods build into WordPress load all result rows into memory first.
 		// We've already run into cases where we run out of memory on a project with less than 100 large records.
-		// To get around this issue, we query to database directly and return the result object to iterate over (instead of loading all rows into memory).
+		// To get around this issue, we query the database directly and return the result object to iterate over (instead of loading all rows into memory).
 		global $wpdb;
 		$dbh = $wpdb->__get('dbh');
-		return mysqli_query($dbh, $sql);
+		$result = mysqli_query($dbh, $sql);
+
+		if($result === false){
+			echo "Error executing query: $sql";
+		}
+
+		return $result;
 	}
 
 	private function processPseudoQuery(&$parsed, &$fields, $addAs)
@@ -474,7 +480,7 @@ class REDCapSync{
 
 				$newField = "$field.meta_value";
 
-				if($addAs){
+				if($addAs && $item['alias'] == false){
 					$newField .= " as $field";
 				}
 
