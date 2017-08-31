@@ -8,11 +8,13 @@ CONST REDCAP_SYNC_CRON_HOOK = 'redcap_sync_cron_hook';
 
 class REDCapSync{
 	const REDCAP_PROJECT = 'redcap_project';
+	const REDCAP_FIELD = 'redcap_field';
 	const REDCAP_RECORD = 'redcap_record';
 
 	function initializePlugin(){
 		add_action('init', function(){
 			register_post_type(self::REDCAP_PROJECT);
+			register_post_type(self::REDCAP_FIELD);
 			register_post_type(self::REDCAP_RECORD);
 		});
 
@@ -117,7 +119,7 @@ class REDCapSync{
 			$recordIdFieldName = get_post_meta($wordPressProjectId, 'record_id_field_name', true);
 
 			if($action == 'update-data-dictionary'){
-//				$this->updateDataDictionary($args);
+				$this->updateDataDictionary($url, $pid, $token);
 			}
 			else if($action == 'update-record'){
 				$recordData = $this->getRecordDataFromREDCap($url, $token, $recordIdFieldName, $recordId);
@@ -151,32 +153,43 @@ class REDCapSync{
 	}
 
 	private function insertOrUpdateRecord($url, $pid, $recordIdFieldName, $recordData){
-		$recordId = $recordData[$recordIdFieldName];
-		$recordMetadataKeys = [
+		$this->insertOrUpdateProjectMetadata(self::REDCAP_RECORD, $url, $pid, $recordIdFieldName, $recordData);
+	}
+
+	private function insertOrUpdateField($url, $pid, $data){
+		$this->insertOrUpdateProjectMetadata(self::REDCAP_FIELD, $url, $pid, 'field_name', $data);
+	}
+
+	private function insertOrUpdateProjectMetadata($postType, $url, $pid, $primaryKeyFieldName, $data){
+		$primaryKey = $data[$primaryKeyFieldName];
+		$metadataKeys = [
 			'url' => $url,
 			'pid' => $pid,
-			$recordIdFieldName => $recordId
+			$primaryKeyFieldName => $primaryKey
 		];
 
-		$newPostMeta = array_merge($recordData, $recordMetadataKeys);
+		$newPostMeta = array_merge($data, $metadataKeys);
 
 		$postData = [
-			'post_type' => self::REDCAP_RECORD,
+			'post_type' => $postType,
 			'post_status' => 'publish'
 		];
 
-		$wordPressRecordId = $this->getWordPressRecordId($recordMetadataKeys);
-		if($wordPressRecordId){
-			// This is an existing record.  Add the record id to the $postData so the existing record will be updated.
-			$postData['ID'] = $wordPressRecordId;
+		$query = $this->getMetadataQuery($postType, $metadataKeys);
+		$existingPostId = $this->getSinglePostId($query, $metadataKeys);
+		if($existingPostId){
+			// This is an existing post.  Add the id to the $postData so the existing post will be updated.
+			$postData['ID'] = $existingPostId;
 
-			$this->deleteCachedFiles($url, $pid, $recordId);
+			if($postType == self::REDCAP_RECORD){
+				$this->deleteCachedFiles($url, $pid, $primaryKey);
+			}
 
-			$oldPostMeta = get_post_meta($wordPressRecordId);
+			$oldPostMeta = get_post_meta($existingPostId);
 			foreach($oldPostMeta as $key=>$value){
 				if(!isset($newPostMeta[$key])){
 					// This field no longer exists on the record.  Remove the old value from WordPress.
-					delete_post_meta($wordPressRecordId, $key);
+					delete_post_meta($existingPostId, $key);
 				}
 			}
 		}
@@ -187,7 +200,7 @@ class REDCapSync{
 		$id = wp_insert_post($postData);
 
 		if(!$id){
-			throw new Exception("An error occurred while adding/updating the record");
+			throw new Exception("An error occurred while adding/updating the post: " . json_encode($postData));
 		}
 	}
 
@@ -328,11 +341,9 @@ class REDCapSync{
 		$pid = $response['project_id'];
 		$title = $response['project_title'];
 
-		$response = $this->request($url, $token, [
-			'content' => 'metadata'
-		]);
+		$fields = $this->updateDataDictionary($url, $pid, $token);
 
-		$recordIdFieldName = $response[0]['field_name'];
+		$recordIdFieldName = $fields[0]['field_name'];
 
 		$id = wp_insert_post([
 			'post_type' => self::REDCAP_PROJECT,
@@ -357,6 +368,40 @@ class REDCapSync{
 		foreach($records as $record){
 			$this->insertOrUpdateRecord($url, $pid, $recordIdFieldName, $record);
 		}
+	}
+
+	private function updateDataDictionary($url, $pid, $token){
+		$fields = $this->request($url, $token, [
+			'content' => 'metadata'
+		]);
+
+		foreach($fields as $fieldData){
+			$this->insertOrUpdateField($url, $pid, $fieldData);
+		}
+
+		return $fields;
+	}
+
+	public function getLabel($pid, $fieldName, $value){
+		$choices = $this->getChoices($pid, $fieldName);
+		return $choices[$value];
+	}
+
+	public function getChoices($pid, $fieldName){
+		$result = $this->queryFields("select select_choices_or_calculations where pid = $pid and field_name = '$fieldName'");
+		$row = mysqli_fetch_assoc($result);
+		$lines = explode(' | ', $row['select_choices_or_calculations']);
+
+		$choices = [];
+		foreach($lines as $line){
+			$separatorIndex = strpos($line, ', ');
+			$key = substr($line, 0, $separatorIndex);
+			$value = substr($line, $separatorIndex+2);
+
+			$choices[$key] = $value;
+		}
+
+		return $choices;
 	}
 
 	public function request($url, $token, $params){
@@ -428,6 +473,18 @@ class REDCapSync{
 	}
 
 	public function queryRecords($pseudoQuery){
+		return $this->query(self::REDCAP_RECORD, $pseudoQuery);
+	}
+
+	public function queryProjects($pseudoQuery){
+		return $this->query(self::REDCAP_PROJECT, $pseudoQuery);
+	}
+
+	public function queryFields($pseudoQuery){
+		return $this->query(self::REDCAP_FIELD, $pseudoQuery);
+	}
+
+	private function query($postType, $pseudoQuery){
 		$parser = new PHPSQLParser();
 		$parsed = $parser->parse($pseudoQuery);
 
@@ -449,6 +506,8 @@ class REDCapSync{
 				$from .= " and $field.post_id = $firstField.post_id";
 			}
 		}
+
+		$from .= " join wp_posts post on post.ID = $firstField.post_id and post.post_type = '$postType' ";
 
 		$sql = implode(' ', [$select, $from, $where]);
 
