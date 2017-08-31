@@ -386,6 +386,10 @@ class REDCapSync{
 	}
 
 	public function getLabel($pid, $fieldName, $value){
+		if($value == ''){
+			return null;
+		}
+
 		$choices = $this->getChoices($pid, $fieldName);
 		return $choices[$value];
 	}
