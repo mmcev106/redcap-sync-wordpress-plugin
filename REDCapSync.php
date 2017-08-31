@@ -102,6 +102,9 @@ class REDCapSync{
 
 	private function cronHook($jsonArgs)
 	{
+		// Used for debugging.
+		error_log('REDCap Sync Cron Hook Executiong: ' . $jsonArgs);
+
 		$args = json_decode($jsonArgs, true);
 
 		$url      = @$args['url'];
